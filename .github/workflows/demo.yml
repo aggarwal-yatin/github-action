@@ -7,4 +7,4 @@ jobs:
         runs-on: ubuntu-latest
         steps:
         - name: Test
-          run: echo
+          run: echo "hello world"
