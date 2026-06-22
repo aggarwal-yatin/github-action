@@ -2,6 +2,11 @@ name: Practice Action
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to deploy"
+        required: true
+      
 
 jobs:
   test-job:
@@ -10,6 +15,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: check
+        run: echo "${{ github.event.inputs.version }}"
 
       - name: Install Python
         uses: actions/setup-python@v5
