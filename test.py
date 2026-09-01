@@ -4,9 +4,7 @@ import unittest
 def add(a, b):
     return a + b
 
-# Test case class
-class TestMathOperations(unittest.TestCase):
-    
+
     # Test method
     def test_add(self):
         result = add(2, 3)
