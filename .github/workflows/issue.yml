@@ -1,0 +1,278 @@
+name: GitHub Issue Notification
+
+on:
+  workflow_call:
+    inputs:
+      request:
+        description: "Notification request JSON"
+        required: true
+        type: string
+
+      api-version:
+        description: "API version"
+        required: false
+        type: string
+        default: "2016-10-01"
+
+      sp:
+        description: "Shared access policy"
+        required: false
+        type: string
+        default: ""
+
+      sv:
+        description: "Signature version"
+        required: false
+        type: string
+        default: ""
+
+      sig:
+        description: "Webhook signature"
+        required: true
+        type: string
+
+    secrets:
+      webhook_url:
+        required: true
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send GitHub issue notification
+        env:
+          WEBHOOK_URL: ${{ secrets.webhook_url }}
+
+          API_VERSION: ${{ inputs.api-version }}
+          SP: ${{ inputs.sp }}
+          SV: ${{ inputs.sv }}
+          SIG: ${{ inputs.sig }}
+
+          REQUEST: ${{ inputs.request }}
+
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          OPENED_BY: ${{ github.event.issue.user.login }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          ACTION: ${{ github.event.action }}
+
+        run: |
+          HEADER=$(echo "$REQUEST" | jq -r '.header // "🚨 GitHub Issue Notification"')
+          BODY=$(echo "$REQUEST" | jq -r '.body // empty')
+          URL=$(echo "$REQUEST" | jq -r '.url // empty')
+          BUTTON_TEXT=$(echo "$REQUEST" | jq -r '.buttonText // "View Issue on GitHub"')
+
+          if [ -z "$URL" ]; then
+            URL="$ISSUE_URL"
+          fi
+
+          if [ "$ACTION" = "opened" ]; then
+            STATUS="🔴 Open"
+            COLOR="Attention"
+          else
+            STATUS="🟢 Closed"
+            COLOR="Good"
+          fi
+
+          # Build webhook URL with query parameters
+          FINAL_URL="$WEBHOOK_URL"
+          FINAL_URL="${FINAL_URL}?api-version=${API_VERSION}&sp=${SP}&sv=${SV}&sig=${SIG}"
+
+          jq -n \
+            --arg header "$HEADER" \
+            --arg body "$BODY" \
+            --arg url "$URL" \
+            --arg button "$BUTTON_TEXT" \
+            --arg repo "$REPOSITORY" \
+            --arg issue "$ISSUE_NUMBER" \
+            --arg openedBy "$OPENED_BY" \
+            --arg status "$STATUS" \
+            --arg description "$ISSUE_BODY" \
+            --arg color "$COLOR" \
+            '{
+              type: "message",
+              attachments: [
+                {
+                  contentType: "application/vnd.microsoft.card.adaptive",
+                  content: {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    type: "AdaptiveCard",
+                    version: "1.4",
+
+                    body: [
+                      {
+                        type: "TextBlock",
+                        text: $header,
+                        weight: "Bolder",
+                        size: "Large",
+                        color: $color,
+                        wrap: true
+                      },
+                      {
+                        type: "FactSet",
+                        facts: [
+                          {
+                            title: "Repository",
+                            value: $repo
+                          },
+                          {
+                            title: "Issue",
+                            value: ("#" + $issue)
+                          },
+                          {
+                            title: "Opened by",
+                            value: $openedBy
+                          },
+                          {
+                            title: "Status",
+                            value: $status
+                          }
+                        ]
+                      },
+                      {
+                        type: "TextBlock",
+                        text: $body,
+                        weight: "Bolder",
+                        size: "Medium",
+                        wrap: true
+                      },
+                      {
+                        type: "TextBlock",
+                        text: $description,
+                        wrap: true,
+                        spacing: "Small"
+                      }
+                    ],
+
+                    actions: [
+                      {
+                        type: "Action.OpenUrl",
+                        title: $button,
+                        url: $url
+                      }
+                    ]
+                  }
+                }
+              ]
+            }' > payload.json
+
+          curl --fail-with-body \
+            -X POST \
+            -H "Content-Type: application/json" \
+            --data @payload.json \
+            "$FINAL_URL"
+
+on:
+  issues:
+    types: [opened, closed]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send issue notification
+        env:
+          WEBHOOK_URL: ${{ secrets.ISSUE_WEBHOOK_URL }}
+
+          HEADER_TEXT: "🚨 GitHub Issue ${{ github.event.action }}"
+          BODY_TEXT: "${{ github.event.issue.title }}"
+          ISSUE_URL: "${{ github.event.issue.html_url }}"
+
+          REPOSITORY: "${{ github.repository }}"
+          ISSUE_NUMBER: "${{ github.event.issue.number }}"
+          OPENED_BY: "${{ github.event.issue.user.login }}"
+          ISSUE_STATUS: "${{ github.event.issue.state }}"
+          ISSUE_BODY: "${{ github.event.issue.body }}"
+
+        run: |
+          if [ "${{ github.event.action }}" = "opened" ]; then
+            HEADER_COLOR="Attention"
+            STATUS="🔴 Open"
+          else
+            HEADER_COLOR="Good"
+            STATUS="🟢 Closed"
+          fi
+
+          jq -n \
+            --arg header "$HEADER_TEXT" \
+            --arg body "$BODY_TEXT" \
+            --arg url "$ISSUE_URL" \
+            --arg repo "$REPOSITORY" \
+            --arg issue "$ISSUE_NUMBER" \
+            --arg openedBy "$OPENED_BY" \
+            --arg status "$STATUS" \
+            --arg description "$ISSUE_BODY" \
+            --arg color "$HEADER_COLOR" \
+            '{
+              type: "message",
+              attachments: [
+                {
+                  contentType: "application/vnd.microsoft.card.adaptive",
+                  content: {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    type: "AdaptiveCard",
+                    version: "1.4",
+                    body: [
+                      {
+                        type: "TextBlock",
+                        text: $header,
+                        weight: "Bolder",
+                        size: "Large",
+                        color: $color
+                      },
+                      {
+                        type: "FactSet",
+                        facts: [
+                          {
+                            title: "Repository",
+                            value: $repo
+                          },
+                          {
+                            title: "Issue",
+                            value: ("#" + $issue)
+                          },
+                          {
+                            title: "Opened by",
+                            value: $openedBy
+                          },
+                          {
+                            title: "Status",
+                            value: $status
+                          }
+                        ]
+                      },
+                      {
+                        type: "TextBlock",
+                        text: $body,
+                        weight: "Bolder",
+                        size: "Medium",
+                        wrap: true,
+                        spacing: "Medium"
+                      },
+                      {
+                        type: "TextBlock",
+                        text: $description,
+                        wrap: true,
+                        spacing: "Small"
+                      }
+                    ],
+                    actions: [
+                      {
+                        type: "Action.OpenUrl",
+                        title: "View Issue on GitHub",
+                        url: $url
+                      }
+                    ]
+                  }
+                }
+              ]
+            }' > payload.json
+
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            --data @payload.json \
+            "https://defaulta45fe71af4804e42ad5eaff33165aa.35.environment.api.powerplatform.com:443/powerautomate/automations/direct/cu/16/workflows/4e9ba8c57ab04bc69ea956f7912b74d7/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=K4dzn-jKEDwLEsmwKoLjWdLjdhG69-ZZ1HnJ5WPm47E"
