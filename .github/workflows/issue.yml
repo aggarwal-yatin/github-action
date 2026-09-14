@@ -19,6 +19,7 @@ jobs:
           SP: ${{ secrets.SP }}
           SV: ${{ secrets.SV }}
           SIG: ${{ secrets.SIG }}
+          
 
           # GitHub Issue information
           REPOSITORY: ${{ github.repository }}
@@ -26,6 +27,7 @@ jobs:
           OPENED_BY: ${{ github.event.issue.user.login }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
+          
           ISSUE_URL: ${{ github.event.issue.html_url }}
           ACTION: ${{ github.event.action }}
 
@@ -35,7 +37,15 @@ jobs:
           echo "Issue action: $ACTION"
           echo "Repository: $REPOSITORY"
           echo "Issue: #$ISSUE_NUMBER"
-
+          PROJECT_NAME=$(echo "$ISSUE_BODY" | awk '
+            /## Project Name/ {
+              getline
+              while ($0 == "" && getline > 0)
+                ;
+              print
+              exit
+            }
+          ')
           # --------------------------------------------------
           # Notification configuration
           # --------------------------------------------------
@@ -83,9 +93,9 @@ jobs:
             --arg repo "$REPOSITORY" \
             --arg issue "$ISSUE_NUMBER" \
             --arg openedBy "$OPENED_BY" \
-            --arg title "$ISSUE_TITLE" \
+            --arg project "$PROJECT_NAME" \
             --arg status "$STATUS" \
-            --arg description "${ISSUE_BODY:-No description provided}" \
+            --arg description "${ISSUE_TITLE:-No description provided}" \
             --arg color "$COLOR" \
             '{
               type: "message",
@@ -119,8 +129,8 @@ jobs:
                             value: ("#" + $issue)
                           },
                           {
-                            title: "Title",
-                            value: $title
+                            title: "project",
+                            value: $project
                           },
                           {
                             title: "Opened by",
