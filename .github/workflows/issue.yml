@@ -1,0 +1,194 @@
+name: GitHub Issue Notification
+
+on:
+  issues:
+    types:
+      - opened
+      - closed
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send GitHub issue notification
+        env:
+          # Webhook configuration
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          API_VERSION: ${{ secrets.API_VERSION }}
+          SP: ${{ secrets.SP }}
+          SV: ${{ secrets.SV }}
+          SIG: ${{ secrets.SIG }}
+          
+
+          # GitHub Issue information
+          REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          OPENED_BY: ${{ github.event.issue.user.login }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          ACTION: ${{ github.event.action }}
+
+        run: |
+          set -e
+
+          echo "Issue action: $ACTION"
+          echo "Repository: $REPOSITORY"
+          echo "Issue: #$ISSUE_NUMBER"
+          PROJECT_NAME=$(echo "$ISSUE_BODY" | awk '
+            /## Project Name/ {
+              getline
+              while ($0 == "" && getline > 0)
+                ;
+              print
+              exit
+            }
+          ')
+          # --------------------------------------------------
+          # Notification configuration
+          # --------------------------------------------------
+
+          HEADER="🚨 GitHub Issue Notification"
+          BODY="A GitHub issue has been $ACTION."
+          BUTTON_TEXT="View Issue on GitHub"
+
+          # --------------------------------------------------
+          # Determine issue status
+          # --------------------------------------------------
+
+          if [ "$ACTION" = "opened" ]; then
+            STATUS="🔴 Open"
+            COLOR="Attention"
+          elif [ "$ACTION" = "closed" ]; then
+            STATUS="🟢 Closed"
+            COLOR="Good"
+          else
+            STATUS="$ACTION"
+            COLOR="Default"
+          fi
+
+          # --------------------------------------------------
+          # Build webhook URL
+          # --------------------------------------------------
+
+          FINAL_URL="$WEBHOOK_URL"
+
+          if [[ "$FINAL_URL" == *"?"* ]]; then
+            FINAL_URL="${FINAL_URL}&api-version=${API_VERSION}&sp=${SP}&sv=${SV}&sig=${SIG}"
+          else
+            FINAL_URL="${FINAL_URL}?api-version=${API_VERSION}&sp=${SP}&sv=${SV}&sig=${SIG}"
+          fi
+
+          # --------------------------------------------------
+          # Create Adaptive Card payload
+          # --------------------------------------------------
+
+          jq -n \
+            --arg header "$HEADER" \
+            --arg body "$BODY" \
+            --arg url "$ISSUE_URL" \
+            --arg button "$BUTTON_TEXT" \
+            --arg repo "$REPOSITORY" \
+            --arg issue "$ISSUE_NUMBER" \
+            --arg openedBy "$OPENED_BY" \
+            --arg project "$PROJECT_NAME" \
+            --arg status "$STATUS" \
+            --arg description "${ISSUE_TITLE:-No description provided}" \
+            --arg color "$COLOR" \
+            '{
+              type: "message",
+              attachments: [
+                {
+                  contentType: "application/vnd.microsoft.card.adaptive",
+                  content: {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    type: "AdaptiveCard",
+                    version: "1.4",
+
+                    body: [
+                      {
+                        type: "TextBlock",
+                        text: $header,
+                        weight: "Bolder",
+                        size: "Large",
+                        color: $color,
+                        wrap: true
+                      },
+
+                      {
+                        type: "FactSet",
+                        facts: [
+                          {
+                            title: "Repository",
+                            value: $repo
+                          },
+                          {
+                            title: "Issue",
+                            value: ("#" + $issue)
+                          },
+                          {
+                            title: "project",
+                            value: $project
+                          },
+                          {
+                            title: "Opened by",
+                            value: $openedBy
+                          },
+                          {
+                            title: "Status",
+                            value: $status
+                          }
+                        ]
+                      },
+
+                      {
+                        type: "TextBlock",
+                        text: $body,
+                        weight: "Bolder",
+                        size: "Medium",
+                        wrap: true,
+                        spacing: "Medium"
+                      },
+
+                      {
+                        type: "TextBlock",
+                        text: $description,
+                        wrap: true,
+                        spacing: "Small"
+                      }
+                    ],
+
+                    actions: [
+                      {
+                        type: "Action.OpenUrl",
+                        title: $button,
+                        url: $url
+                      }
+                    ]
+                  }
+                }
+              ]
+            }' > payload.json
+
+          # --------------------------------------------------
+          # Show payload for debugging
+          # --------------------------------------------------
+
+          echo "Adaptive Card payload:"
+          cat payload.json
+
+          # --------------------------------------------------
+          # Send notification
+          # --------------------------------------------------
+
+          echo "Sending notification..."
+
+          curl --fail-with-body \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --data @payload.json \
+            "$FINAL_URL"
+
+          echo "Notification sent successfully."
